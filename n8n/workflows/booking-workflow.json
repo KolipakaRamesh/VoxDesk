@@ -1,0 +1,261 @@
+{
+  "name": "VoxDesk — Booking Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "book-appointment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: Book Appointment",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ── VoxDesk: Validate & Normalize Booking Payload ─────────────────────────\nconst body = $input.first().json.body || $input.first().json;\n\n// Required fields\nconst required = ['customer_name', 'customer_phone', 'service_type', 'requested_date', 'requested_time'];\nfor (const field of required) {\n  if (!body[field]) {\n    throw new Error(`VALIDATION_ERROR: Missing required field: ${field}`);\n  }\n}\n\n// Service duration map (minutes)\nconst durations = {\n  'haircut': 45,\n  'hair coloring': 90,\n  'massage': 60,\n  'facial': 60,\n  'consultation': 30,\n  'default': 60\n};\n\nconst serviceKey = body.service_type.toLowerCase();\nconst durationMins = durations[serviceKey] || durations['default'];\n\n// Parse start datetime\n// requested_date: YYYY-MM-DD, requested_time: HH:MM (24h)\nconst [year, month, day] = body.requested_date.split('-').map(Number);\nconst [hour, minute] = body.requested_time.split(':').map(Number);\n\nconst startDate = new Date(year, month - 1, day, hour, minute);\n\n// Validate business hours (9 AM – 6 PM)\nif (hour < 9 || hour >= 18) {\n  throw new Error('VALIDATION_ERROR: Appointment must be within business hours (9 AM – 6 PM)');\n}\n\n// Validate not in the past\nif (startDate < new Date()) {\n  throw new Error('VALIDATION_ERROR: Cannot book an appointment in the past');\n}\n\n// Calculate end time\nconst endDate = new Date(startDate.getTime() + durationMins * 60 * 1000);\n\nreturn [{\n  json: {\n    customer_name: body.customer_name.trim(),\n    customer_phone: body.customer_phone.trim(),\n    service_type: body.service_type.trim(),\n    notes: body.notes || '',\n    call_id: body.call_id || '',\n    start_iso: startDate.toISOString(),\n    end_iso: endDate.toISOString(),\n    duration_mins: durationMins,\n    time_min: startDate.toISOString(),\n    time_max: endDate.toISOString()\n  }\n}];"
+      },
+      "id": "validate-payload",
+      "name": "Code: Validate & Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "event",
+        "operation": "getAll",
+        "calendarId": "={{ $env.GOOGLE_CALENDAR_ID }}",
+        "timeMin": "={{ $json.time_min }}",
+        "timeMax": "={{ $json.time_max }}",
+        "singleEvents": true,
+        "returnAll": true
+      },
+      "id": "calendar-check",
+      "name": "Google Calendar: Check Slot",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "slot-available",
+              "leftValue": "={{ $json.length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-availability",
+      "name": "IF: Slot Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "event",
+        "operation": "create",
+        "calendarId": "={{ $env.GOOGLE_CALENDAR_ID }}",
+        "start": "={{ $('Code: Validate & Normalize').first().json.start_iso }}",
+        "end": "={{ $('Code: Validate & Normalize').first().json.end_iso }}",
+        "additionalFields": {
+          "summary": "=VoxDesk: {{ $('Code: Validate & Normalize').first().json.customer_name }} – {{ $('Code: Validate & Normalize').first().json.service_type }}",
+          "description": "=Customer: {{ $('Code: Validate & Normalize').first().json.customer_name }}\nPhone: {{ $('Code: Validate & Normalize').first().json.customer_phone }}\nService: {{ $('Code: Validate & Normalize').first().json.service_type }}\nCall ID: {{ $('Code: Validate & Normalize').first().json.call_id }}\nNotes: {{ $('Code: Validate & Normalize').first().json.notes }}",
+          "reminders": {
+            "useDefault": false,
+            "overrides": [{ "method": "popup", "minutes": 30 }]
+          }
+        }
+      },
+      "id": "create-calendar-event",
+      "name": "Google Calendar: Create Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "body": "={\n  \"customer_name\": \"{{ $('Code: Validate & Normalize').first().json.customer_name }}\",\n  \"customer_phone\": \"{{ $('Code: Validate & Normalize').first().json.customer_phone }}\",\n  \"service_type\": \"{{ $('Code: Validate & Normalize').first().json.service_type }}\",\n  \"start_time\": \"{{ $('Code: Validate & Normalize').first().json.start_iso }}\",\n  \"end_time\": \"{{ $('Code: Validate & Normalize').first().json.end_iso }}\",\n  \"status\": \"confirmed\",\n  \"google_event_id\": \"{{ $('Google Calendar: Create Event').first().json.id }}\",\n  \"call_id\": \"{{ $('Code: Validate & Normalize').first().json.call_id }}\",\n  \"notes\": \"{{ $('Code: Validate & Normalize').first().json.notes }}\"\n}",
+        "options": {}
+      },
+      "id": "insert-appointment",
+      "name": "HTTP: Insert Appointment (Supabase)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/call_logs?call_id=eq.{{ $('Code: Validate & Normalize').first().json.call_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "body": "={\n  \"outcome\": \"booking_confirmed\",\n  \"appointment_id\": \"{{ $('HTTP: Insert Appointment (Supabase)').first().json[0].id }}\"\n}",
+        "options": {}
+      },
+      "id": "update-call-log-success",
+      "name": "HTTP: Update Call Log (Confirmed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"appointment_id\": \"{{ $('HTTP: Insert Appointment (Supabase)').first().json[0].id }}\",\n  \"google_event_id\": \"{{ $('Google Calendar: Create Event').first().json.id }}\",\n  \"confirmed_start\": \"{{ $('Code: Validate & Normalize').first().json.start_iso }}\",\n  \"confirmed_end\": \"{{ $('Code: Validate & Normalize').first().json.end_iso }}\"\n}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-success",
+      "name": "Respond: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1780, 240]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/appointments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "body": "={\n  \"customer_name\": \"{{ $('Code: Validate & Normalize').first().json.customer_name }}\",\n  \"customer_phone\": \"{{ $('Code: Validate & Normalize').first().json.customer_phone }}\",\n  \"service_type\": \"{{ $('Code: Validate & Normalize').first().json.service_type }}\",\n  \"start_time\": \"{{ $('Code: Validate & Normalize').first().json.start_iso }}\",\n  \"end_time\": \"{{ $('Code: Validate & Normalize').first().json.end_iso }}\",\n  \"status\": \"failed\",\n  \"call_id\": \"{{ $('Code: Validate & Normalize').first().json.call_id }}\",\n  \"notes\": \"Slot unavailable at requested time\"\n}",
+        "options": {}
+      },
+      "id": "log-failed-booking",
+      "name": "HTTP: Log Failed Booking (Supabase)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 560]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/call_logs?call_id=eq.{{ $('Code: Validate & Normalize').first().json.call_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "body": "={\n  \"outcome\": \"booking_failed\",\n  \"error_message\": \"Slot unavailable at requested time\"\n}",
+        "options": {}
+      },
+      "id": "update-call-log-failed",
+      "name": "HTTP: Update Call Log (Failed)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 560]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": false,\n  \"error\": \"The requested slot is unavailable.\",\n  \"error_code\": \"SLOT_UNAVAILABLE\"\n}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-unavailable",
+      "name": "Respond: Slot Unavailable",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1560, 560]
+    }
+  ],
+  "connections": {
+    "Webhook: Book Appointment": {
+      "main": [[{ "node": "Code: Validate & Normalize", "type": "main", "index": 0 }]]
+    },
+    "Code: Validate & Normalize": {
+      "main": [[{ "node": "Google Calendar: Check Slot", "type": "main", "index": 0 }]]
+    },
+    "Google Calendar: Check Slot": {
+      "main": [[{ "node": "IF: Slot Available?", "type": "main", "index": 0 }]]
+    },
+    "IF: Slot Available?": {
+      "main": [
+        [{ "node": "Google Calendar: Create Event", "type": "main", "index": 0 }],
+        [{ "node": "HTTP: Log Failed Booking (Supabase)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Google Calendar: Create Event": {
+      "main": [[{ "node": "HTTP: Insert Appointment (Supabase)", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Insert Appointment (Supabase)": {
+      "main": [[{ "node": "HTTP: Update Call Log (Confirmed)", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Update Call Log (Confirmed)": {
+      "main": [[{ "node": "Respond: Success", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Log Failed Booking (Supabase)": {
+      "main": [[{ "node": "HTTP: Update Call Log (Failed)", "type": "main", "index": 0 }]]
+    },
+    "HTTP: Update Call Log (Failed)": {
+      "main": [[{ "node": "Respond: Slot Unavailable", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "versionId": "2",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "voxdesk-mvp"
+  },
+  "id": "voxdesk-booking-v2",
+  "tags": [{ "name": "voxdesk" }, { "name": "mvp" }]
+}
