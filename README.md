@@ -28,7 +28,7 @@
 
 | Layer | Technology |
 |---|---|
-| Frontend / Dashboard | Next.js 15, Tailwind CSS, shadcn/ui |
+| Frontend / Dashboard | Next.js 16, Tailwind CSS, shadcn/ui |
 | Voice | Retell AI + Twilio |
 | Workflow | n8n |
 | Database | Supabase (PostgreSQL) |
@@ -73,7 +73,15 @@ cp .env.local.example .env.local
    - `n8n/workflows/booking-workflow.json`
 3. Configure Google Calendar credentials (Service Account) on both workflows
 4. Link the error handler workflow in each workflow's Settings → Error Workflow
-5. Activate all workflows and copy webhook URLs to `.env.local`
+5. Activate all workflows and copy the webhook URLs to `.env.local`:
+   * By default, n8n generates two URLs:
+     * `N8N_BOOKING_WEBHOOK_URL` -> `https://<instance>/webhook/book-appointment`
+     * `N8N_AVAILABILITY_WEBHOOK_URL` -> `https://<instance>/webhook/check-availability`
+   * If you configure a unified router, you can point both to a single endpoint (e.g., `https://<instance>/webhook/retell-agent`).
+6. **Authentication & Security (`N8N_WEBHOOK_SECRET`)**:
+   * To secure your n8n endpoints, you can pass a custom authorization header from Retell to n8n (e.g. `Authorization: Bearer <your-secret-token>`).
+   * Define this token in `.env.local` as `N8N_WEBHOOK_SECRET`.
+   * Enable "Header Auth" inside your n8n webhook nodes to validate this token.
 
 > See `docs/n8n-workflows-guide.md` for full setup instructions and Retell function definitions.
 
@@ -83,8 +91,8 @@ cp .env.local.example .env.local
 2. Create a new AI agent
 3. Paste the system prompt from `docs/retell-prompt.md`
 4. Add two functions:
-   - `check_availability` → `N8N_AVAILABILITY_WEBHOOK_URL`
-   - `book_appointment` → `N8N_BOOKING_WEBHOOK_URL`
+   - `check_availability` → Point to your `N8N_AVAILABILITY_WEBHOOK_URL`
+   - `book_appointment` → Point to your `N8N_BOOKING_WEBHOOK_URL`
 5. Copy Agent ID to `.env.local`
 
 ### 6. Connect Twilio
