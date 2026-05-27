@@ -7,7 +7,7 @@
 ## Architecture
 
 ```
-[Caller] → [Twilio] → [Retell AI Agent]
+[Caller] → [Vobiz (Telephony)] → [Retell AI Agent]
                               ↓ (function call)
                        [n8n Workflow]
                          ↙        ↘
@@ -29,7 +29,7 @@
 | Layer | Technology |
 |---|---|
 | Frontend / Dashboard | Next.js 16, Tailwind CSS, shadcn/ui |
-| Voice | Retell AI + Twilio |
+| Voice | Retell AI + Vobiz |
 | Workflow | n8n |
 | Database | Supabase (PostgreSQL) |
 | Calendar | Google Calendar API |
@@ -95,10 +95,10 @@ cp .env.local.example .env.local
    - `book_appointment` → Point to your `N8N_BOOKING_WEBHOOK_URL`
 5. Copy Agent ID to `.env.local`
 
-### 6. Connect Twilio
+### 6. Connect Vobiz (Telephony)
 
-1. Create a phone number in Twilio
-2. In Retell dashboard, link the Twilio number to your agent
+1. Provision your phone number or SIP trunk in Vobiz.
+2. In the Retell Dashboard under the Inbound/SIP section, link your Vobiz SIP trunk / number to your Retell Agent ID.
 
 ### 7. Run Locally
 
