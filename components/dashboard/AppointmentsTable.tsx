@@ -11,9 +11,16 @@ import {
   type SortingState,
 } from '@tanstack/react-table';
 import { useState } from 'react';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
-import { formatDateTime, truncate, statusToBadge } from '@/lib/utils';
+import { formatAppointmentDateTime, formatDateTime, truncate, statusToBadge } from '@/lib/utils';
 import type { Appointment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -23,30 +30,33 @@ interface AppointmentsTableProps {
 
 const columns: ColumnDef<Appointment>[] = [
   {
-    accessorKey: 'customer_name',
+    accessorKey: 'name',
     header: 'Customer',
     cell: ({ row }) => (
       <div>
-        <p className="font-medium text-foreground">{row.original.customer_name}</p>
-        <p className="text-xs font-mono text-muted-foreground">{row.original.customer_phone}</p>
+        <p className="font-medium text-foreground">{row.original.name}</p>
+        <p className="text-xs font-mono text-muted-foreground">{row.original.phone}</p>
       </div>
     ),
   },
   {
-    accessorKey: 'service_type',
-    header: 'Service',
-    cell: ({ getValue }) => (
-      <span className="rounded-md bg-accent/50 px-2 py-0.5 text-xs font-medium text-accent-foreground">
-        {getValue() as string}
-      </span>
-    ),
+    accessorKey: 'email',
+    header: 'Email',
+    cell: ({ getValue }) => {
+      const email = getValue() as string | null;
+      return email ? (
+        <span className="text-sm text-muted-foreground">{email}</span>
+      ) : (
+        <span className="text-xs text-muted-foreground/40">—</span>
+      );
+    },
   },
   {
-    accessorKey: 'start_time',
+    accessorKey: 'appointment_date',
     header: 'Date & Time',
-    cell: ({ getValue }) => (
-      <span className="text-sm text-foreground">
-        {formatDateTime(getValue() as string)}
+    cell: ({ row }) => (
+      <span className="text-sm text-foreground whitespace-nowrap">
+        {formatAppointmentDateTime(row.original.appointment_date, row.original.appointment_time)}
       </span>
     ),
   },
@@ -55,27 +65,46 @@ const columns: ColumnDef<Appointment>[] = [
     header: 'Status',
     cell: ({ getValue }) => {
       const status = getValue() as string;
-      return <StatusBadge label={status} variant={statusToBadge(status)} />;
-    },
-  },
-  {
-    accessorKey: 'google_event_id',
-    header: 'Calendar Event',
-    cell: ({ getValue }) => {
-      const id = getValue() as string | null;
-      return id ? (
-        <span className="font-mono text-xs text-muted-foreground">{truncate(id, 20)}</span>
-      ) : (
-        <span className="text-xs text-muted-foreground/50">—</span>
+      return (
+        <StatusBadge
+          label={status.charAt(0).toUpperCase() + status.slice(1)}
+          variant={statusToBadge(status)}
+        />
       );
     },
   },
   {
-    accessorKey: 'notes',
-    header: 'Notes',
+    accessorKey: 'cancellation_reason',
+    header: 'Reason',
+    cell: ({ getValue }) => {
+      const reason = getValue() as string | null;
+      return reason ? (
+        <span className="text-xs text-muted-foreground" title={reason}>
+          {truncate(reason, 50)}
+        </span>
+      ) : (
+        <span className="text-xs text-muted-foreground/40">—</span>
+      );
+    },
+  },
+  {
+    accessorKey: 'calendar_event_id',
+    header: 'Calendar',
+    cell: ({ getValue }) => {
+      const id = getValue() as string | null;
+      return id ? (
+        <span className="font-mono text-xs text-muted-foreground">{truncate(id, 18)}</span>
+      ) : (
+        <span className="text-xs text-muted-foreground/40">—</span>
+      );
+    },
+  },
+  {
+    accessorKey: 'created_at',
+    header: 'Created',
     cell: ({ getValue }) => (
-      <span className="text-xs text-muted-foreground">
-        {truncate((getValue() as string) ?? '', 40)}
+      <span className="text-xs text-muted-foreground whitespace-nowrap">
+        {formatDateTime(getValue() as string)}
       </span>
     ),
   },
@@ -83,7 +112,7 @@ const columns: ColumnDef<Appointment>[] = [
 
 export function AppointmentsTable({ data }: AppointmentsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'start_time', desc: true },
+    { id: 'appointment_date', desc: true },
   ]);
   const [globalFilter, setGlobalFilter] = useState('');
 
@@ -107,7 +136,7 @@ export function AppointmentsTable({ data }: AppointmentsTableProps) {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search appointments…"
+          placeholder="Search by name, phone, email…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
           className="w-full rounded-lg border border-border bg-muted/30 py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"

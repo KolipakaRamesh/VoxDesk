@@ -19,80 +19,64 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown as ExpandIcon,
+  AlertCircle,
 } from 'lucide-react';
+import { formatDateTime, truncate, errorTypeToBadge } from '@/lib/utils';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
-import { formatDateTime, formatDuration, truncate, statusToBadge } from '@/lib/utils';
-import type { CallLog } from '@/lib/types';
+import type { ErrorLog } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-interface CallLogsTableProps {
-  data: CallLog[];
+interface ErrorLogsTableProps {
+  data: ErrorLog[];
 }
 
-const columns: ColumnDef<CallLog>[] = [
+const columns: ColumnDef<ErrorLog>[] = [
   {
-    accessorKey: 'call_id',
-    header: 'Call ID',
+    accessorKey: 'id',
+    header: 'ID',
     cell: ({ getValue }) => (
-      <span className="font-mono text-xs text-muted-foreground">
-        {truncate(getValue() as string, 24)}
-      </span>
+      <span className="font-mono text-xs text-muted-foreground">#{getValue() as number}</span>
     ),
   },
   {
-    accessorKey: 'from_number',
-    header: 'From',
-    cell: ({ getValue }) => (
-      <span className="font-mono text-sm text-foreground">
-        {(getValue() as string) ?? '—'}
-      </span>
-    ),
-  },
-  {
-    accessorKey: 'started_at',
-    header: 'Start Time',
+    accessorKey: 'error_type',
+    header: 'Error Type',
     cell: ({ getValue }) => {
-      const v = getValue() as string | null;
-      return <span className="text-sm">{v ? formatDateTime(v) : '—'}</span>;
-    },
-  },
-  {
-    accessorKey: 'duration_secs',
-    header: 'Duration',
-    cell: ({ getValue }) => (
-      <span className="text-sm">{formatDuration(getValue() as number)}</span>
-    ),
-  },
-  {
-    accessorKey: 'outcome',
-    header: 'Outcome',
-    cell: ({ getValue }) => {
-      const outcome = getValue() as string;
+      const type = getValue() as string;
       return (
         <StatusBadge
-          label={outcome.replace(/_/g, ' ')}
-          variant={statusToBadge(outcome)}
+          label={type}
+          variant={errorTypeToBadge(type)}
         />
       );
     },
   },
   {
-    accessorKey: 'transcript',
-    header: 'Transcript',
+    accessorKey: 'error_message',
+    header: 'Message',
     cell: ({ getValue }) => (
-      <span className="text-xs text-muted-foreground">
-        {truncate((getValue() as string) ?? '', 60)}
+      <span className="text-sm text-foreground/80">
+        {truncate((getValue() as string) ?? '', 70)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'created_at',
+    header: 'Occurred At',
+    cell: ({ getValue }) => (
+      <span className="text-xs text-muted-foreground whitespace-nowrap">
+        {formatDateTime(getValue() as string)}
       </span>
     ),
   },
 ];
 
-export function CallLogsTable({ data }: CallLogsTableProps) {
+export function ErrorLogsTable({ data }: ErrorLogsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'started_at', desc: true },
+    { id: 'created_at', desc: true },
   ]);
   const [globalFilter, setGlobalFilter] = useState('');
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
 
   const table = useReactTable({
     data,
@@ -114,7 +98,7 @@ export function CallLogsTable({ data }: CallLogsTableProps) {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
-          placeholder="Search by number, outcome…"
+          placeholder="Search by error type or message…"
           value={globalFilter}
           onChange={(e) => setGlobalFilter(e.target.value)}
           className="w-full rounded-lg border border-border bg-muted/30 py-2 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -147,8 +131,9 @@ export function CallLogsTable({ data }: CallLogsTableProps) {
                       </span>
                     </th>
                   ))}
+                  {/* Details column header */}
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Full Log
+                    Details
                   </th>
                 </tr>
               ))}
@@ -160,12 +145,14 @@ export function CallLogsTable({ data }: CallLogsTableProps) {
                     colSpan={columns.length + 1}
                     className="py-16 text-center text-sm text-muted-foreground"
                   >
-                    No call logs found.
+                    No workflow errors recorded. 🎉
                   </td>
                 </tr>
               ) : (
                 table.getRowModel().rows.flatMap((row) => {
-                  const isExpanded = expandedRow === row.id;
+                  const isExpanded = expandedRow === row.original.id;
+                  const hasDetails = !!row.original.appointment_data;
+
                   return [
                     <tr
                       key={row.id}
@@ -176,13 +163,14 @@ export function CallLogsTable({ data }: CallLogsTableProps) {
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
+                      {/* Expand button */}
                       <td className="px-4 py-3">
-                        {row.original.transcript && (
+                        {hasDetails ? (
                           <button
                             onClick={() =>
-                              setExpandedRow(isExpanded ? null : row.id)
+                              setExpandedRow(isExpanded ? null : row.original.id)
                             }
-                            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+                            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
                           >
                             <ExpandIcon
                               className={cn(
@@ -190,29 +178,27 @@ export function CallLogsTable({ data }: CallLogsTableProps) {
                                 isExpanded && 'rotate-180'
                               )}
                             />
-                            {isExpanded ? 'Collapse' : 'Expand'}
+                            {isExpanded ? 'Collapse' : 'View Data'}
                           </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
                         )}
                       </td>
                     </tr>,
-                    isExpanded && (
+
+                    isExpanded && hasDetails && (
                       <tr key={`${row.id}-expanded`} className="bg-muted/10">
                         <td colSpan={columns.length + 1} className="px-4 pb-4 pt-2">
-                          <div className="rounded-lg border border-border/40 bg-muted/20 p-4">
-                            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              Full Transcript
-                            </p>
-                            <p className="whitespace-pre-wrap font-mono text-xs text-foreground/80">
-                              {row.original.transcript}
-                            </p>
-                            {row.original.error_message && (
-                              <div className="mt-3 rounded-md bg-rose-400/10 p-3">
-                                <p className="text-xs font-semibold text-rose-400">Error</p>
-                                <p className="mt-1 text-xs text-rose-300">
-                                  {row.original.error_message}
-                                </p>
-                              </div>
-                            )}
+                          <div className="rounded-lg border border-rose-400/20 bg-rose-400/5 p-4">
+                            <div className="mb-2 flex items-center gap-2">
+                              <AlertCircle className="h-3.5 w-3.5 text-rose-400" />
+                              <p className="text-xs font-semibold uppercase tracking-wider text-rose-400">
+                                Appointment Data at Time of Error
+                              </p>
+                            </div>
+                            <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs text-foreground/70">
+                              {JSON.stringify(row.original.appointment_data, null, 2)}
+                            </pre>
                           </div>
                         </td>
                       </tr>
@@ -227,7 +213,7 @@ export function CallLogsTable({ data }: CallLogsTableProps) {
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-border/60 px-4 py-3">
           <p className="text-xs text-muted-foreground">
-            {table.getFilteredRowModel().rows.length} total call(s)
+            {table.getFilteredRowModel().rows.length} total error(s)
           </p>
           <div className="flex items-center gap-2">
             <button

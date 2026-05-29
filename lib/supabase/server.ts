@@ -1,22 +1,30 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-if (!supabaseUrl || !serviceRoleKey) {
+/**
+ * Prefer the service_role key (bypasses RLS) for server-side operations.
+ * Falls back to the anon key — safe for this MVP because RLS is disabled.
+ * NEVER import this client in browser code.
+ */
+const serverKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+if (!supabaseUrl || !serverKey) {
   throw new Error(
-    'Missing Supabase server environment variables. ' +
-    'Ensure NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set.'
+    'Missing Supabase environment variables. ' +
+    'Ensure NEXT_PUBLIC_SUPABASE_URL and either SUPABASE_SERVICE_ROLE_KEY ' +
+    'or NEXT_PUBLIC_SUPABASE_ANON_KEY are set in .env.local.'
   );
 }
 
 /**
- * Server-side Supabase client using the service_role key.
- * NEVER expose this client to the browser.
- * Bypasses RLS — use only in Server Components, Route Handlers, and Server Actions.
+ * Server-side Supabase client.
+ * Use only in Server Components, Route Handlers, and Server Actions.
  */
 export function createServiceClient(): SupabaseClient {
-  return createClient(supabaseUrl, serviceRoleKey, {
+  return createClient(supabaseUrl, serverKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,

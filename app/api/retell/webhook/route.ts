@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
           ? new Date(call.start_timestamp).toISOString()
           : new Date().toISOString(),
         outcome: 'no_intent' as CallOutcome,
-        raw_payload: payload as Record<string, unknown>,
+        raw_payload: payload as unknown as Record<string, unknown>,
       });
 
       if (error) {
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
             duration_secs: duration,
             transcript: call.transcript ?? null,
             outcome: 'no_intent' as CallOutcome, // n8n updates this after booking
-            raw_payload: payload as Record<string, unknown>,
+            raw_payload: payload as unknown as Record<string, unknown>,
           },
           { onConflict: 'call_id' }
         );
@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       if (analysis) {
         const { error } = await supabase
           .from('call_logs')
-          .update({ raw_payload: payload as Record<string, unknown> })
+          .update({ raw_payload: payload as unknown as Record<string, unknown> })
           .eq('call_id', call.call_id);
 
         if (error) {

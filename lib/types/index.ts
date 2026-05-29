@@ -1,4 +1,4 @@
-// ─── Retell AI ──────────────────────────────────────────────────────────────
+// ─── Retell AI Webhook Payload ───────────────────────────────────────────────
 
 export interface RetellCallEvent {
   event:
@@ -29,60 +29,10 @@ export interface RetellCallEvent {
   };
 }
 
-// ─── Booking Payload (Retell function call → n8n) ───────────────────────────
-
-export interface BookingPayload {
-  call_id: string;
-  customer_name: string;
-  customer_phone: string;
-  service_type: string;
-  requested_date: string; // ISO 8601: "2025-08-15"
-  requested_time: string; // 24h: "14:00"
-  timezone?: string; // e.g. "Asia/Kolkata"
-  notes?: string;
-}
-
-// ─── Availability Check Payload ──────────────────────────────────────────────
-
-export interface AvailabilityPayload {
-  requested_date: string; // "2025-08-15"
-  requested_time: string; // "14:00"
-  service_type: string;
-}
-
-// ─── n8n Booking Response ────────────────────────────────────────────────────
-
-export interface BookingResponse {
-  success: boolean;
-  appointment_id?: string;
-  google_event_id?: string;
-  confirmed_start?: string; // ISO 8601
-  confirmed_end?: string; // ISO 8601
-  error?: string;
-  error_code?:
-    | 'SLOT_UNAVAILABLE'
-    | 'VALIDATION_ERROR'
-    | 'CALENDAR_ERROR'
-    | 'DB_ERROR';
-  alternative_slots?: string[]; // ISO 8601 strings
-}
-
-// ─── n8n Availability Response ───────────────────────────────────────────────
-
-export interface AvailabilityResponse {
-  available: boolean;
-  next_available?: string; // ISO 8601
-  checked_slot?: string; // ISO 8601
-}
-
-// ─── Supabase Enum Types ─────────────────────────────────────────────────────
-
-export type AppointmentStatus =
-  | 'pending'
-  | 'confirmed'
-  | 'cancelled'
-  | 'failed';
-
+/**
+ * Used by the Retell webhook route to type call outcomes.
+ * Kept for API-layer compatibility.
+ */
 export type CallOutcome =
   | 'booking_confirmed'
   | 'booking_failed'
@@ -91,53 +41,49 @@ export type CallOutcome =
   | 'dropped'
   | 'error';
 
+// ─── Supabase Enum Types ─────────────────────────────────────────────────────
+
+export type AppointmentStatus =
+  | 'confirmed'
+  | 'pending'
+  | 'cancelled'
+  | 'failed';
+
 // ─── Supabase Row Types ──────────────────────────────────────────────────────
 
+/**
+ * Matches the real `appointments` table in Supabase.
+ */
 export interface Appointment {
-  id: string;
-  customer_id?: string;
-  customer_name: string;
-  customer_phone: string;
-  service_type: string;
-  start_time: string;
-  end_time: string;
-  status: AppointmentStatus;
-  google_event_id?: string;
-  call_id?: string;
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CallLog {
-  id: string;
-  call_id: string;
-  from_number?: string;
-  to_number?: string;
-  started_at?: string;
-  ended_at?: string;
-  duration_secs?: number;
-  transcript?: string;
-  outcome: CallOutcome;
-  appointment_id?: string;
-  error_message?: string;
-  raw_payload?: Record<string, unknown>;
-  created_at: string;
-}
-
-export interface Customer {
-  id: string;
+  id: number;
   name: string;
   phone: string;
-  email?: string;
-  created_at: string;
+  email?: string | null;
+  appointment_date: string;       // date column → "YYYY-MM-DD"
+  appointment_time: string;       // text column → "HH:MM" (24h)
+  created_at: string;             // timestamp
+  status: AppointmentStatus;
+  cancellation_reason?: string | null;
+  calendar_event_id?: string | null;
+}
+
+/**
+ * Matches the real `error_logs` table in Supabase.
+ * Stores errors that occurred during the n8n workflow.
+ */
+export interface ErrorLog {
+  id: number;
+  error_type: string;
+  error_message: string;
+  created_at: string;             // timestamp
+  appointment_data?: Record<string, unknown> | null; // jsonb
 }
 
 // ─── Dashboard Stats ─────────────────────────────────────────────────────────
 
 export interface DashboardStats {
   total_appointments: number;
-  confirmed_today: number;
-  failed_bookings: number;
-  total_calls: number;
+  confirmed_appointments: number;
+  failed_appointments: number;
+  total_errors: number;
 }
